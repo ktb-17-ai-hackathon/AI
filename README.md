@@ -10,7 +10,7 @@
 ## **기술 스택**
 - AI: Gemini API, FastAPI, Python, uvicorn, gunicorn
 
-## **기술 적용 전략 (이번 프로젝트에서 기술을 어떻게 적용할 것인가?)**
+## **기술 적용 전략**
 
 - 해당 기술을 선택한 이유:
     - pydantic 기반 요청/응답 스키마 검증 가능
