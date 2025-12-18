@@ -116,8 +116,17 @@ Strict JSON Rules
         current_assets = int(user_data.get("currentFinancialAssets") or 0)
         extra_assets = int(user_data.get("additionalAssets") or 0)
         annual_income = int(user_data.get("annualIncome") or 0)
+        side_income = int(user_data.get("annualSideIncome") or 0)
+        total_income = annual_income + side_income
         district = user_data.get("currentDistrict") or "거주 지역"
         preferred_region = user_data.get("preferredRegion") or "희망 지역"
+        sub_balance = int(user_data.get("totalSubscriptionBalance") or 0)
+        sub_monthly = int(user_data.get("monthlySubscriptionAmount") or 0)
+        target_rate = int(user_data.get("targetSavingRate") or 0)
+        preferred_size = user_data.get("preferredHousingSize") or "희망 평형"
+        target_sub_type = user_data.get("targetSubscriptionType") or "미정"
+        priority_list = user_data.get("priorityCriteria") or []
+        income_mode = "외벌이" if user_data.get("isDoubleIncome") is False else "맞벌이/미정"
 
         reasons_text = "; ".join(plan.diagnosis.reasons) if plan.diagnosis.reasons else "특이 사유 없음"
         projection_text = ", ".join(
@@ -132,12 +141,14 @@ Strict JSON Rules
             f"1) 진단 개요: {plan.summary.title}. {plan.summary.body} 청약 적합도는 {plan.diagnosis.confidenceLevel}이며, 현재 판단으로는 "
             f"{'청약으로도 진입 가능' if plan.diagnosis.canBuyWithCheongyak else '청약만으로는 진입이 어려워 보수적 접근이 필요'}합니다. "
             f"선택된 전략 호라이즌은 {plan.planMeta.recommendedHorizon}이며 사유는 '{plan.planMeta.reason}'입니다.",
-            f"2) 재무 현황: 연소득 {annual_income:,}원, 월 저축 {monthly_saving:,}원 수준, 가용 자산은 {current_assets + extra_assets:,}원으로 추정됩니다. "
-            f"저축 추정: {projection_text}. {reasons_text}",
-            f"3) 단계별 실행: 지금은 {now_text}. 3년 내에는 {three_text}. 5년 시점에는 {five_text}.",
-            f"4) 지역·대출 포인트: 현재 거주지 {district}와 희망 지역 {preferred_region}을 기준으로 통근·생활 편의를 유지하며 청약 가점을 관리하세요. "
-            "대출 가능 한도와 규제는 주기적으로 확인하고, 청약 가산점을 높일 수 있는 가족 구성·무주택 기간 관리에 집중하세요.",
-            "5) 당부: 계획은 시장 상황에 따라 조정이 필요합니다. 분기마다 자산·부채를 점검하고, 청약 일정과 제도 변화를 모니터링하세요. "
+            f"2) 재무 현황: 연소득(본업+부업) {total_income:,}원, 월 저축 {monthly_saving:,}원 수준, 가용 자산은 {current_assets + extra_assets:,}원으로 추정됩니다. "
+            f"청약통장 적립 {sub_balance:,}원, 월 불입 {sub_monthly:,}원. 저축 추정: {projection_text}. {reasons_text}",
+            f"3) 단계별 실행: 지금은 {now_text}. 3년 내에는 {three_text}. 5년 시점에는 {five_text}. 목표 저축률은 약 {target_rate}%로 관리하세요.",
+            f"4) 주거/선호: 현재 거주 {district}, 희망 지역 {preferred_region}, 희망 평형 {preferred_size}, 선호 기준 {', '.join(priority_list) or '선호 기준 미기입'}. "
+            f"청약 유형은 {target_sub_type}을 고려하고, 소득 구조는 {income_mode}로 관리하세요.",
+            "5) 지역·대출·가점: 통근·생활 편의를 유지하며 청약 가점을 관리하고, 대출 가능 한도와 규제를 주기적으로 확인하세요. "
+            "가족 구성·무주택 기간 관리로 가점을 높이세요.",
+            "6) 당부: 계획은 시장 상황에 따라 조정이 필요합니다. 분기마다 자산·부채를 점검하고, 청약 일정과 제도 변화를 모니터링하세요. "
             "과도한 레버리지는 피하고 생활비 쿠션을 남겨 재무 스트레스를 낮추는 것이 핵심입니다.",
         ]
 
