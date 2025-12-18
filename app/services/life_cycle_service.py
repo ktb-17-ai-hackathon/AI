@@ -35,6 +35,7 @@ Strict JSON Rules
 2) 스키마의 키와 값 타입을 정확히 지킨다. 불리언은 true/false, 숫자는 정수, 문자열은 따옴표로 감싼다.
 3) 추가 키, trailing comma, null 사용 금지. 배열은 최소 1개 이상의 문자열을 넣는다.
 4) 모든 문자열은 한국어 간결 문장으로 작성한다. 투자 권유·확정적 수익 표현 금지.
+5) 출력 문자열에는 JSON 필드명(예: confidenceLevel, recommendedHorizon 등)을 그대로 노출하지 말고, 한국어 설명으로 풀어쓴다.
 
 [사용자 데이터]
 {user_info_text}
