@@ -1,4 +1,6 @@
 import json
+import hashlib
+import time
 from pydantic import ValidationError
 from typing import Any, Dict, Optional
 from app.schemas.life_cycle_response import LifeCyclePlanResponse
@@ -14,6 +16,8 @@ class LifeCycleService:
         self.gemini = gemini
         self.repo = repo
         self._cache: Dict[str, LifeCyclePlanResponse] = {}
+        self._failure_count = 0
+        self._breaker_open_until = 0.0
 
     def _build_prompt(self, user_data: dict) -> str:
         user_info_text = json.dumps(user_data, ensure_ascii=False, indent=2)
@@ -139,8 +143,10 @@ Strict JSON Rules
         return "\n".join(sections)
 
     def _get_cache_key(self, user_data: dict) -> Optional[str]:
-        key = user_data.get("surveyId")
-        return str(key) if key is not None else None
+        survey = user_data.get("surveyId")
+        payload = json.dumps(user_data, ensure_ascii=False, sort_keys=True)
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return f"{survey}:{digest}" if survey is not None else digest
 
     def _get_cached_plan(self, cache_key: Optional[str]) -> Optional[LifeCyclePlanResponse]:
         if not cache_key:
@@ -153,14 +159,38 @@ Strict JSON Rules
             return
         self._cache[cache_key] = plan.model_copy(deep=True)
 
+    def _ensure_report(self, plan: LifeCyclePlanResponse, user_data: Dict[str, Any]) -> LifeCyclePlanResponse:
+        if plan.report and plan.report.strip():
+            return plan
+        report = self._build_report(plan, user_data)
+        return plan.model_copy(update={"report": report})
+
     def generate_plan(self, user_data: dict) -> LifeCyclePlanResponse:
         cache_key = self._get_cache_key(user_data)
+        now_ts = time.time()
+
+        if now_ts < self._breaker_open_until:
+            cached = self._get_cached_plan(cache_key)
+            if cached:
+                cached = self._ensure_report(cached, user_data)
+                self.repo.save_record(task="plan", user_data=user_data, question=None, result=cached.model_dump_json())
+                return cached
+            fallback = self._build_fallback_plan(user_data, "Gemini 회로가 일시적으로 닫혀 있습니다.")
+            fallback = self._ensure_report(fallback, user_data)
+            self.repo.save_record(task="plan", user_data=user_data, question=None, result=fallback.model_dump_json())
+            return fallback
+
         prompt = self._build_prompt(user_data)
         try:
             raw_text = self.gemini.generate_text(prompt)
         except (GeminiServiceUnavailable, GeminiServiceTimeout) as e:
+            self._failure_count += 1
+            if self._failure_count >= 3:
+                self._breaker_open_until = time.time() + 60
+
             cached = self._get_cached_plan(cache_key)
             if cached:
+                cached = self._ensure_report(cached, user_data)
                 self.repo.save_record(
                     task="plan",
                     user_data=user_data,
@@ -170,8 +200,7 @@ Strict JSON Rules
                 return cached
 
             fallback = self._build_fallback_plan(user_data, str(e))
-            report = self._build_report(fallback, user_data)
-            fallback = fallback.model_copy(update={"report": report})
+            fallback = self._ensure_report(fallback, user_data)
             self.repo.save_record(task="plan", user_data=user_data, question=None, result=fallback.model_dump_json())
             return fallback
 
@@ -188,8 +217,9 @@ Strict JSON Rules
         except ValidationError as e:
             raise ValueError(f"LLM JSON schema mismatch: {e}")
 
-        report = self._build_report(validated, user_data)
-        validated = validated.model_copy(update={"report": report})
+        self._failure_count = 0
+        self._breaker_open_until = 0.0
+        validated = self._ensure_report(validated, user_data)
 
         self._save_cache(cache_key, validated)
         self.repo.save_record(task="plan", user_data=user_data, question=None, result=validated.model_dump_json())
