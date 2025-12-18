@@ -77,14 +77,14 @@ Strict JSON Rules
         payload = {
             "summary": {
                 "title": "임시 청약 플랜 (LLM 지연)",
-                "body": f"Gemini가 일시적으로 응답하지 않아 기본 가이드를 제공합니다. 이유: {reason}",
+                "body": "현재 AI 응답이 지연되어 기본 가이드를 제공합니다.",
             },
             "diagnosis": {
                 "canBuyWithCheongyak": False,
                 "confidenceLevel": "LOW",
                 "reasons": [
-                    "AI 분석이 지연되어 보수적으로 안내합니다.",
-                    f"{district} 기준 자금 계획을 우선 점검하세요.",
+                    "AI 분석 지연으로 보수적인 가이드를 제공합니다.",
+                    f"{district} 기준 자금 계획과 청약 자격을 우선 점검하세요.",
                 ],
             },
             "timeHorizonStrategy": {

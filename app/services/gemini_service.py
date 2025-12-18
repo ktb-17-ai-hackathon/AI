@@ -23,7 +23,7 @@ class GeminiService:
         if not settings.GEMINI_API_KEY:
             raise RuntimeError("GEMINI_API_KEY is not set in environment variables.")
 
-    def generate_text(self, prompt: str, retries: int = 3, backoff_factor: float = 0.1) -> str:
+    def generate_text(self, prompt: str, retries: int = 5, backoff_factor: float = 0.5) -> str:
         url = f"{settings.GEMINI_URL}?key={settings.GEMINI_API_KEY}"
         last_exception = None
 
@@ -57,14 +57,14 @@ class GeminiService:
 
             except GeminiServiceUnavailable as e:
                 last_exception = e
-                wait_time = (backoff_factor * (2 ** attempt)) + (random.random() * 0.1)
+                wait_time = (backoff_factor * (2 ** attempt)) + (random.random() * 0.3)
                 time.sleep(wait_time)
                 continue
             except requests.Timeout:
                 last_exception = GeminiServiceTimeout(
                     f"Gemini request timed out after {settings.GEMINI_TIMEOUT_SEC} seconds"
                 )
-                wait_time = (backoff_factor * (2 ** attempt)) + (random.random() * 0.1)
+                wait_time = (backoff_factor * (2 ** attempt)) + (random.random() * 0.3)
                 time.sleep(wait_time)
                 continue
             except requests.RequestException as e:
