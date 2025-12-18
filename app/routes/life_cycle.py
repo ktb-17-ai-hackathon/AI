@@ -25,3 +25,7 @@ def generate_life_cycle_plan(req: LifeCycleSurveyRequest):
         )
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/health")
+def test_connection():
+    return {"status": "OK", "message": "AI server OK."}
