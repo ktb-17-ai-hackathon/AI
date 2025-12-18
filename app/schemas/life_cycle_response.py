@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 ConfidenceLevel = Literal["HIGH", "MEDIUM", "LOW"]
 RecommendedHorizon = Literal["SHORT_3", "MID_5", "LONG_10"]
@@ -35,4 +35,4 @@ class LifeCyclePlanResponse(BaseModel):
     timeHorizonStrategy: TimeHorizonStrategy
     chartData: ChartData
     planMeta: PlanMeta
-    report: str
+    report: Optional[str] = None
