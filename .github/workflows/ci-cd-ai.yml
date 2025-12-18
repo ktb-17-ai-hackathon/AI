@@ -110,5 +110,5 @@ jobs:
             sudo AI_VERSION=$VERSION docker compose pull
             sudo AI_VERSION=$VERSION docker compose up -d --remove-orphans
           
-            echo "✅ Deployment completed: version $VERSION"
+            echo "✅ Deployment completed: version $VERSION" 
           EOF
