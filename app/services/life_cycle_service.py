@@ -1,8 +1,7 @@
 import json
 import hashlib
-import time
 from pydantic import ValidationError
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from app.schemas.life_cycle_response import LifeCyclePlanResponse
 from app.services.json_sanitizer import extract_json_object
 from app.services.gemini_service import (
@@ -15,9 +14,6 @@ class LifeCycleService:
     def __init__(self, gemini: GeminiService, repo):
         self.gemini = gemini
         self.repo = repo
-        self._cache: Dict[str, LifeCyclePlanResponse] = {}
-        self._failure_count = 0
-        self._breaker_open_until = 0.0
 
     def _build_prompt(self, user_data: dict) -> str:
         user_info_text = json.dumps(user_data, ensure_ascii=False, indent=2)
@@ -29,6 +25,7 @@ Role
 Task
 - 사용자의 현황을 진단하고 청약 적합도, 자산 로드맵, 실행 지침, 지역/대출/가산점 포인트를 제시한다.
 - 숫자/지역/직업 등은 입력 JSON 그대로 사용한다. 추측은 금지하며, 부족한 정보는 텍스트에서 보수적으로 언급한다.
+- 표현이 지나치게 정형화되지 않도록 한국어 문장과 어휘를 조금씩 변주하라. 단, 아래 JSON 스키마/키/타입은 반드시 지킨다.
 
 Strict JSON Rules
 1) 반드시 단 하나의 JSON 객체만 출력한다. 코드블록/머리말/주석/설명 문장 금지.
@@ -82,13 +79,13 @@ Strict JSON Rules
         payload = {
             "summary": {
                 "title": "임시 청약 플랜 (LLM 지연)",
-                "body": "현재 AI 응답이 지연되어 기본 가이드를 제공합니다.",
+                "body": f"현재 AI 응답이 지연되어 기본 가이드를 제공합니다. 원인: {reason}",
             },
             "diagnosis": {
                 "canBuyWithCheongyak": False,
                 "confidenceLevel": "LOW",
                 "reasons": [
-                    "AI 분석 지연으로 보수적인 가이드를 제공합니다.",
+                    f"AI 분석 지연/오류: {reason}",
                     f"{district} 기준 자금 계획과 청약 자격을 우선 점검하세요.",
                 ],
             },
@@ -111,6 +108,16 @@ Strict JSON Rules
             if cleaned.endswith((".", "!", "?")):
                 cleaned = cleaned[:-1].rstrip()
             return cleaned
+
+        payload_str = json.dumps(user_data, ensure_ascii=False, sort_keys=True)
+        seed = int(hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:8], 16)
+        pick_idx = 0
+
+        def pick(options):
+            nonlocal pick_idx
+            choice = options[(seed + pick_idx) % len(options)]
+            pick_idx += 1
+            return choice
 
         monthly_saving = int(user_data.get("monthlySavingAmount") or 0)
         current_assets = int(user_data.get("currentFinancialAssets") or 0)
@@ -137,39 +144,44 @@ Strict JSON Rules
         three_text = _clean_phrase(plan.timeHorizonStrategy.threeYears, "3년 내에는")
         five_text = _clean_phrase(plan.timeHorizonStrategy.fiveYears, "5년 시점에는")
 
+        horizon_desc = {
+            "SHORT_3": "3년 이내 단기 진입 전략",
+            "MID_5": "5년 내 중기 진입 전략",
+            "LONG_10": "10년 장기 준비 전략",
+        }.get(plan.planMeta.recommendedHorizon, "맞춤 호라이즌")
+
+        confidence_desc = {
+            "HIGH": "신뢰도 높음",
+            "MEDIUM": "보통 수준",
+            "LOW": "낮음",
+        }.get(plan.diagnosis.confidenceLevel, "보통")
+
+        can_buy_text = pick([
+            "청약으로도 진입 가능하다는 판단입니다." if plan.diagnosis.canBuyWithCheongyak else "청약만으로는 진입이 어려워 보수적 접근이 필요합니다.",
+            "청약 경로만으로 접근이 가능해 보입니다." if plan.diagnosis.canBuyWithCheongyak else "청약만으로는 부족하니 대체 자금/전략을 병행하세요.",
+        ])
+
+        header_label = pick(["진단 한줄", "현황 요약", "핵심 브리프"])
+        finance_label = pick(["재무 포인트", "돈 흐름 점검", "자금 현황"])
+        action_label = pick(["실행 로드맵", "단계별 계획", "행동 가이드"])
+        home_label = pick(["주거/선호", "거주/희망 조건", "선호 정리"])
+        etc_label = pick(["지역·대출·가점", "규제/대출/가점", "청약 준비 체크"])
+        caution_label = pick(["유의 사항", "안내", "추가 메모"])
+
         sections = [
-            f"1) 진단 개요: {plan.summary.title}. {plan.summary.body} 청약 적합도는 {plan.diagnosis.confidenceLevel}이며, 현재 판단으로는 "
-            f"{'청약으로도 진입 가능' if plan.diagnosis.canBuyWithCheongyak else '청약만으로는 진입이 어려워 보수적 접근이 필요'}합니다. "
-            f"선택된 전략 호라이즌은 {plan.planMeta.recommendedHorizon}이며 사유는 '{plan.planMeta.reason}'입니다.",
-            f"2) 재무 현황: 연소득(본업+부업) {total_income:,}원, 월 저축 {monthly_saving:,}원 수준, 가용 자산은 {current_assets + extra_assets:,}원으로 추정됩니다. "
-            f"청약통장 적립 {sub_balance:,}원, 월 불입 {sub_monthly:,}원. 저축 추정: {projection_text}. {reasons_text}",
-            f"3) 단계별 실행: 지금은 {now_text}. 3년 내에는 {three_text}. 5년 시점에는 {five_text}. 목표 저축률은 약 {target_rate}%로 관리하세요.",
-            f"4) 주거/선호: 현재 거주 {district}, 희망 지역 {preferred_region}, 희망 평형 {preferred_size}, 선호 기준 {', '.join(priority_list) or '선호 기준 미기입'}. "
-            f"청약 유형은 {target_sub_type}을 고려하고, 소득 구조는 {income_mode}로 관리하세요.",
-            "5) 지역·대출·가점: 통근·생활 편의를 유지하며 청약 가점을 관리하고, 대출 가능 한도와 규제를 주기적으로 확인하세요. "
-            "가족 구성·무주택 기간 관리로 가점을 높이세요.",
-            "6) 당부: 계획은 시장 상황에 따라 조정이 필요합니다. 분기마다 자산·부채를 점검하고, 청약 일정과 제도 변화를 모니터링하세요. "
+            f"1) {header_label}: {plan.summary.title}. {plan.summary.body} 청약 적합도는 {confidence_desc}, {can_buy_text} "
+            f"선택된 전략 방향은 '{horizon_desc}'이며 이유는 '{plan.planMeta.reason}'입니다.",
+            f"2) {finance_label}: 연소득(본업+부업) {total_income:,}원, 월 저축 {monthly_saving:,}원, 가용 자산 {current_assets + extra_assets:,}원 추정. "
+            f"청약통장 적립 {sub_balance:,}원, 월 불입 {sub_monthly:,}원. 저축 추정치: {projection_text}. 참고: {reasons_text}",
+            f"3) {action_label}: 지금은 {now_text}. 3년 내에는 {three_text}. 5년 시점에는 {five_text}. 목표 저축률은 약 {target_rate}%로 관리하세요.",
+            f"4) {home_label}: 거주 {district}, 희망 지역 {preferred_region}, 희망 평형 {preferred_size}, 선호 기준 {', '.join(priority_list) or '선호 기준 미기입'}. "
+            f"청약 유형은 {target_sub_type} 고려, 소득 구조는 {income_mode}로 관리하세요.",
+            f"5) {etc_label}: 통근·생활 편의를 유지하며 청약 가점을 관리하고, 대출 가능 한도와 규제를 주기적으로 확인하세요. 가족 구성·무주택 기간 관리로 가점을 높이세요.",
+            f"6) {caution_label}: 계획은 시장 상황에 따라 조정이 필요합니다. 분기마다 자산·부채를 점검하고, 청약 일정과 제도 변화를 모니터링하세요. "
             "과도한 레버리지는 피하고 생활비 쿠션을 남겨 재무 스트레스를 낮추는 것이 핵심입니다.",
         ]
 
         return "\n".join(sections)
-
-    def _get_cache_key(self, user_data: dict) -> Optional[str]:
-        survey = user_data.get("surveyId")
-        payload = json.dumps(user_data, ensure_ascii=False, sort_keys=True)
-        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-        return f"{survey}:{digest}" if survey is not None else digest
-
-    def _get_cached_plan(self, cache_key: Optional[str]) -> Optional[LifeCyclePlanResponse]:
-        if not cache_key:
-            return None
-        cached = self._cache.get(cache_key)
-        return cached.model_copy(deep=True) if cached else None
-
-    def _save_cache(self, cache_key: Optional[str], plan: LifeCyclePlanResponse) -> None:
-        if not cache_key:
-            return
-        self._cache[cache_key] = plan.model_copy(deep=True)
 
     def _ensure_report(self, plan: LifeCyclePlanResponse, user_data: Dict[str, Any]) -> LifeCyclePlanResponse:
         # 항상 최신 사용자 입력을 반영해 보고서를 새로 작성한다.
@@ -177,39 +189,10 @@ Strict JSON Rules
         return plan.model_copy(update={"report": report})
 
     def generate_plan(self, user_data: dict) -> LifeCyclePlanResponse:
-        cache_key = self._get_cache_key(user_data)
-        now_ts = time.time()
-
-        if now_ts < self._breaker_open_until:
-            cached = self._get_cached_plan(cache_key)
-            if cached:
-                cached = self._ensure_report(cached, user_data)
-                self.repo.save_record(task="plan", user_data=user_data, question=None, result=cached.model_dump_json())
-                return cached
-            fallback = self._build_fallback_plan(user_data, "Gemini 회로가 일시적으로 닫혀 있습니다.")
-            fallback = self._ensure_report(fallback, user_data)
-            self.repo.save_record(task="plan", user_data=user_data, question=None, result=fallback.model_dump_json())
-            return fallback
-
         prompt = self._build_prompt(user_data)
         try:
             raw_text = self.gemini.generate_text(prompt)
         except (GeminiServiceUnavailable, GeminiServiceTimeout) as e:
-            self._failure_count += 1
-            if self._failure_count >= 3:
-                self._breaker_open_until = time.time() + 60
-
-            cached = self._get_cached_plan(cache_key)
-            if cached:
-                cached = self._ensure_report(cached, user_data)
-                self.repo.save_record(
-                    task="plan",
-                    user_data=user_data,
-                    question=None,
-                    result=cached.model_dump_json(),
-                )
-                return cached
-
             fallback = self._build_fallback_plan(user_data, str(e))
             fallback = self._ensure_report(fallback, user_data)
             self.repo.save_record(task="plan", user_data=user_data, question=None, result=fallback.model_dump_json())
@@ -232,10 +215,7 @@ Strict JSON Rules
         except ValidationError as e:
             raise ValueError(f"LLM JSON schema mismatch: {e}")
 
-        self._failure_count = 0
-        self._breaker_open_until = 0.0
         validated = self._ensure_report(validated, user_data)
 
-        self._save_cache(cache_key, validated)
         self.repo.save_record(task="plan", user_data=user_data, question=None, result=validated.model_dump_json())
         return validated
