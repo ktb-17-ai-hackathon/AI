@@ -224,6 +224,10 @@ Strict JSON Rules
         except json.JSONDecodeError as e:
             raise ValueError(f"LLM returned invalid JSON after cleaning: {str(e)} | cleaned={cleaned_json[:200]}")
 
+        # 보장: report 필드가 없거나 비어있으면 임시 문자열로 채워 검증을 통과시킨 뒤 아래에서 실제 보고서를 생성
+        if not isinstance(parsed.get("report"), str) or not parsed.get("report", "").strip():
+            parsed["report"] = "보고서 생성 예정"
+
         try:
             validated = LifeCyclePlanResponse(**parsed)
         except ValidationError as e:
