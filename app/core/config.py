@@ -9,6 +9,6 @@ class Settings:
         "https://generativelanguage.googleapis.com/"
         "v1beta/models/gemini-2.5-flash:generateContent"
     )
-    GEMINI_TIMEOUT_SEC: int = 100
+    GEMINI_TIMEOUT_SEC: int = 150
 
 settings = Settings()
