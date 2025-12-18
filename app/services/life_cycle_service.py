@@ -172,8 +172,7 @@ Strict JSON Rules
         self._cache[cache_key] = plan.model_copy(deep=True)
 
     def _ensure_report(self, plan: LifeCyclePlanResponse, user_data: Dict[str, Any]) -> LifeCyclePlanResponse:
-        if plan.report and plan.report.strip():
-            return plan
+        # 항상 최신 사용자 입력을 반영해 보고서를 새로 작성한다.
         report = self._build_report(plan, user_data)
         return plan.model_copy(update={"report": report})
 
