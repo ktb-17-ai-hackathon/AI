@@ -35,4 +35,4 @@ class LifeCyclePlanResponse(BaseModel):
     timeHorizonStrategy: TimeHorizonStrategy
     chartData: ChartData
     planMeta: PlanMeta
-    report: str | None = None
+    report: str
