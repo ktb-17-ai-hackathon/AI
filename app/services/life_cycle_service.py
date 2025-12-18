@@ -99,6 +99,7 @@ JSON 외 다른 텍스트 금지
         prompt = self._build_prompt(user_data)
         raw_text = self.gemini.generate_text(prompt)
 
+        # 이부분을 없애기
         cleaned_json = extract_json_object(raw_text)
 
         try:
